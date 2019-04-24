@@ -1,0 +1,8 @@
+.DS_Store
+nbproject
+Thumbs.db
+*.o
+main
+*.swo
+*.swp
+*~

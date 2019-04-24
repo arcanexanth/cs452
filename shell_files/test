@@ -1,0 +1,10 @@
+  PID TTY          TIME CMD
+16184 pts/0    00:00:00 bash
+23875 pts/0    00:00:00 bash
+23876 pts/0    00:00:00 ps
+lex.c
+lex.yy.c
+myshell.c
+run
+test
+test.c

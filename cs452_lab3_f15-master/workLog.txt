@@ -1,0 +1,537 @@
+Personal Work Notes. Authored by Lucas Zutter
+
+Caution: This file's text is formatted very strangely in normal Notepad. View this either in Notepad++ or Vim.
+
+
+
+10/30: (didn't start yesterday because I really needed a break)
+
+I'm looking at the instructions for the lab. I'll note things as I go and make a brief list and the end. I'll come up with a design after that, if I can right away.
+
+All three schedulers use Round Robin, so I'd better make sure I know what Round Robin is.
+	It's also fairly obvious that threading will be involved.
+
+
+
+All schedulers:
+
+"Running round robin in the third queue [in MFQS] means ignoring new arivals in the first queue while the third queue time quantum is not yet over."
+        That means, while one process is going, new processes are stuck waiting until the current process is done running.
+How can we do this...
+	I think I should have the ready/run/wait "ecosystem" in mind.
+		Note: If a process is in the running state, I/O puts it in the waiting state, clock interupts put it in the ready state.
+			clock interupt during "i++" is bad.
+
+Pseudocode (may or may not be complete):
+
+        Scheduler:
+
+		while(the program is still running){ //possibly an infinite loop, "while(1)"
+        	        while(there is a process that wants to get scheduled){
+				schedule it
+			}
+			//if we get here, the scheduler doesn't see any moe processes to schedule, yet
+			grab the highestpriority process and let it run it's time quantum.
+			if(the process completes within its time quantum){
+				we don't need it anymore, so eject it from the ecosystem (aka terminate/kill it). this may happen within the process
+			} else {
+				demote the process and reschedule it
+			}
+		}
+
+        New Process:
+
+                wait to be called by the scheduler
+		once put in a queue by the scheduler, wait there. Aging should occur while in the queue (unless this is the top queue of MFQS or something)
+		once called by the queue, run for the duration of your time quantum
+		if(done running before time quantum expires){
+			this process ends/dies/gets terminated
+		} else {
+			priority goes down
+		}
+		go back to waiting in the queue
+
+
+
+Multi-level Feedback Queue (instructions):
+
+Looks like a process has at least these variables for scheduling:
+	Time Quantum (int?)
+	Priority (int)
+
+To implement aging, each procress should probably have a timer that starts once it is sent to a queue.
+	We can have a while loop going while the process is still in the queue that checks if a certain amount of time has gone by.
+	*Pseudocode: 
+
+		While(process is still in queue){ //if the "process still in queue" part is something like a function call, that's all we'll need
+
+			//In the following check, the idea of having a spareTime variable is to prevent time from being lost while reseting the timer
+			//Example: We want to age every 10 clock ticks, so after 12 clock ticks, spareTime = 2
+			//Maybe this isn't so bad depending on how much time is lost. Worth thinking about...
+
+			if(waiting timer has counted that a certain amount of time has passed + spareTime){
+
+				//maybe we should stop the timer here (I'm thinking we probably shouldn't)
+				priority += priority increase allowed due to aging;
+				spareTime = timer - the amount of time that triggers this aging conditional;
+				reset the timer, "waitingTimer.reset()" or something
+				//if we stop the timer above, we should start it again before exiting
+			}
+			//if the "process still in queue" thing isn't a function call, there should be something to check if we're in the queue or not around here
+			//however, it better not do any blocking. This while loop needs to keep checking for if we need to age process priority.
+		}
+
+	END PSEUDOCODE
+
+Need to consider tiebreakers: when two processes are entering a queue at the same time.
+
+1. When the time quantum of a process expires the exact same time a process ages up, the aged process goes first regardless of current priority.
+	If we do that, maybe we should set the aged process to have priority of at least 1 more than the time quantum demoted process.
+2. If the above isn't a factor, the highest priority process goes first.
+3. If priorities are equal, check pid. The lower pid should go first.
+4. I wonder if we'll still have a tie at this point. Perhaps the time quantum of the process can help here (lower one first).
+
+Partner just made a repository, so I'll look at what he has before developing more pseudocode.
+
+
+11/2:
+
+--MEETING START--
+
+Tried compiling partner's old code. There was a warning for comparing a signed and unsigned integer, but adding a cast to int removed that quickly.
+	It compiles, but MFQS doesn't work. Partner did a bit more, but it's still off a ways.
+
+Looked at sample exam with partner to work through an MFQS example by hand. He quickly concluded that our current MFQS code doesn't work that way.
+	The sample exam MFQS problem has the second queue have double the time quantum of the queue above it. Perhaps we should do that?
+	Need to keep looking at our current code first.
+
+--MEETING ENDED-- (partner going to other classes)
+
+Looking at current MFQS code now. There isn't really that much in there (about 40 lines). I see these problems:
+
+1. It keeps going from the highest queue to the lowest queue in that order. I think this should be dynamic, not linear.
+2. Aging isn't implemented at all.
+3. Arival time appears to be ignored.
+
+And at least a few others, including having major errors past the first queue. We may want to start from scratch since there isn't much anyway.
+
+There are some things I can see though:
+
+-We may not need threads to implement aging. We could just sent info about the clock to all processes in the READY state each time a "process" is handled.
+	However, if we can send info from one thread to all other threads, that may be faster.
+	Reminder: aging is defined by the user. As a base case though, we should ignore aging (enter "0" to ignore aging).
+
+-We never have processes in the waiting state in MFQS. I guess it makes sense considering MFQS never does I/O. Not sure this means anything though...
+
+
+--MEETING START-- (partner back from classes)
+
+decided to look closer at the issues with current MFQS code
+
+Added "process added to next queue" output to the else of "if TQ > time remaining". It never shows on the second iteration.
+
+~Partner added output after when a process is added to the next queue to output the contents of the next queue.
+The next queue's data is altered in undesirable ways after the first push.
+
+While my patner's debugging his code, I'll think of how to implement aging and handle arrival time.
+
+
+*****************************************************
+Aging (reminder: only occurs in 3rd or later queues):
+
+Questions:
+1. Does aging get reset once a process runs? yes
+2. Should we decrease age when a process gets promoted, or reset age? reset age
+
+//perhaps we could set a boolean to true when a process enters the third queue that activates aging checks
+//I wonder if there's an easy way to tell which process is the oldest... May need to load processes into a list and sort them.
+	//worst case scenario: ignore age order, just promote old processes as we pop them off the queue for being old enough.
+
+Add "age" variable to processes; //can probably be done when loading in process data from file (in main)
+								 //or we can add the age variable to processes as they come into MFQS so it doesn't waste time in the other schedulers that don't use aging
+
+//this belongs in the time quantum (TQ) check, before reducing time remaining for the current process
+if(numQueues >= 3 && there are processes in the third/forth/fifth queue){ //adding "or later" shouldn't be needed assuming a later queue is empty if an earlier queue is also empty
+
+	//we should probably make the following a function/method call. Should do seperate versions in case MFQS aging isn't like WHS aging
+
+	//May need some booleans here to mark if we can't load a next process or go to a next queue because a queue is empty or doesn't exist
+
+	Load the oldest process from the highest queue with a process (up to third queue); //grabbing just any process isn't so good, we want older processes going before newer ones
+
+	while(we're in a queue that has at least one process whose age variable wasn't checked){ //meaning "loop until the last process in the last queue"
+
+		while(we're cycling through processes in this queue){ //we have one process at a time in here
+	
+			if(timeRemaining < TQ){
+				process.age += timeRemaining (of last process); //arrival time is also a factor
+			} else {
+				process.age += TQ;
+			}
+
+			if(age of this process is past the ageLimit set by the user){ //this is a while loop in case the process has to move up multiple times, ex: a 100 burst process ran in the last queue
+				process.age = 0;
+				move process to the queue above its current queue; //up to the second queue
+			}
+			(try to) Load the next oldest process in this queue (the one the outter while loop is going through);
+		}
+		(try to) Go to the next queue;
+	}
+}
+
+************************************************
+Arival Time (this should be for all schedulers):
+
+//Most of what happens so far is fine. However, we shouldn't send all the processes to the scheduler yet, because they technically aren't there yet (when clock = 0).
+//I'll make two versions of this.
+
+########################################################################################
+Version 1: send all the processes to the scheduler right away regardless of arival time.
+
+In main.cpp: (change nothing)
+
+In scheduler program:
+
+Load in every process with an arrival time of 0 (ignore the rest for now); //can supposedly remove values from the master process list at the same time
+
+Whenever the clock changes (such as after everything else happens after either TQ for MFQS, or after a single clock tick for RTS):
+
+//using "[[]]" for the if statement parenthesis for clarity
+if[[FOR MFQS: clock > arival time of the first process in the master process list not loaded in yet
+		FOR RTS: if there's a process with arrival time equal to clock //--------------------------------Don't have to check for less than if it checks every clock tick
+		ALL SCHEDULERS: && we didn't load everything from the process masterlist yet (should probably have this first)]] {
+
+	MFQS: "pop" processes off the master process list and "push" them into the working process list.
+	RTS: Load all processes with arrival times equal to the current clock value somewhere. The process with the highest priority and lowest PID goes first.
+
+}
+
+//Might be simple as that, but I'm not quite sure...
+
+########################################################
+Version 2: don't send over all the processes right away.
+
+In main.cpp:
+
+Send all processes with arrival time equal to 0 to the scheduler;
+Store the rest of the data somewhere (maybe keeping it in main.cpp is fine?);
+
+if(all processes were sent to scheduler){ //in this case, all processes would have arrival time = 0
+	Tell the scheduler that it doesn't need to bother asking if there's a process yet to be loaded
+}
+
+In scheduler, at clock change:
+
+if(did not receive signal that all processes were loaded in){
+	Send clock data to wherever the rest of the processes are stored, getting ready to load more processes;
+}
+
+In the location where the processes are stored:
+
+if(there's a process that hasn't been loaded by the scheduler with arival time less than the clock value just sent by the scheduler){
+	while(there is a process with arrival time less than or equal to recieved clock time){
+		send this process to the scheduler
+	}
+}
+
+if(all processes were sent to scheduler){
+        Tell the scheduler that it doesn't need to bother asking if there's a process yet to be loaded
+}
+
+
+END PSEUDOCODE
+##############
+
+
+~MFQS works now, minus aging and arrival time, so here's what's left:
+	-add aging and arrival time handling to MFQS
+	-the whole of RTS
+	-the whole of WHS (which will probably be a lot)
+	-output:
+		-Gantt chart for each scheduling algorithm
+		-"the entiresimulation run of any particular algorithm. 
+		It is best to output all process characteristics in one clock tick intervals."
+		-"Statistics for the average waiting and average turnaround time." (so we'll need some class that does math)
+
+With MFQS just about complete, we started looking at RTS. We've decided we'll probably encapsulate the program in a while loop, then we were done for the day.
+
+--MEETING ENDED--		
+
+
+
+11/3:
+
+With RTS up next, it's time for some Pseudocode for it (note: RTS doesn't have aging, nor does it bother with priority):
+
+Questions:
+1. Should we worry about priority for "critical processes" since we're doing soft real-time,?
+
+[the following may not be complete yet]
+
+START PSEUDOCODE
+
+save process list sent over by main function as a process masterlist; //I had the idea that we may not need a masterlist for a moment,
+																	  //but we'll need some way to override low priority processes being run
+																	  //Even with state setting, having a second list we for reordering can be good
+
+pop processes off the masterlist and add them to a sub list until we find a process with arival time > 0; //maybe this should be a function call
+
+int clock = 0;
+
+Process *p = lowest deadline process with lowest PID in the process sublist; 
+
+//make sure this doesn't end early if a process has a very late arrival time. In other words, this should keep going as long as the master and sub lists aren't empty
+while(this->hasJobs()){ 
+
+	if(the sub list is not empty) { //if this isn't entered, we have to wait for more processes to be ready (handled in else)
+
+		//first step is to do a clock tick. this involves reducing the time remaining on the current process and increasing clock by 1.
+		p->setTimeRemaining(p->getTimeRemaining - 1);
+		clock++;
+		
+		//maybe the following belongs outside this if/else block...
+		
+		//I think the best next move is to see if there are new processes coming in
+		if(first process in the masterlist queue has arrival time <= clock){
+			pop processes off the masterlist and add them to the sub list until we find a process with arival time > clock; //same as the function call line above
+		}
+		
+		//next, see if the current process is over
+		if(p->getTimeRemaining() == 0){
+
+			load the lowest deadline process whose arrival time is <= clock;
+			
+		} else if (p->getTimeRemaining() != 0 && we just loaded in a process with a higher priority) { //may not need the left side of the &&
+		
+			//may need to check priority before doing the following if soft real-time computing requires it.
+			reorder processes so that the current process gets pushed back and the new, lower deadline process gets going;
+		
+		}
+		
+	} else { //if there's no process currently going, all we can do is increase the clock and check for something to load (although, the load may belong here)
+	
+		clock++;
+		if(first process in the masterlist queue has arrival time <= clock){
+			pop processes off the masterlist and add them to the sub list until we find a process with arival time > clock; //same as the function call line above
+			
+			p = first of the processes just loaded in;
+		}
+	
+	}
+}
+
+
+END PSEUDOCODE
+
+
+Will likely keep editing the above for the next few days (starting Thursday; need to study for exam first).
+
+~Partner worked on implementing arrival time to MFQS based off of setting process state. Using that old code should help reduce the need to add new code.
+
+
+11/5:
+
+--MEETING START--
+
+~Partner still working on how arrival time works with MFQS. Looks like he did a thing or two between when I left last time and now.
+
+
+I'm looking at the test file the professor sent via email recently, and remember we'll have to deal with negative numbers. Looks like there's negative:
+	Burst (2nd #) -> eliminate for all schedulers
+	Arrival Time (3rd #) -> either set add to it's wait time and set to zero or eliminate for all schedulers <- ask professor
+	Deadline (5th/2nd last #) -> eliminate for RTS. ignore otherwise
+	
+File number order: Pid	Bst	Arr	Pri	Dline	I/O
+
+These weren't negative in the example file, but are worth considering:
+	Priority -> WHS only (maybe RTS). schedule or eliminate <- ask
+	I/O -> WHS only. probably best to eliminate
+	PID -> eliminate/ignore (same with equal PID)
+
+Partner had a thought: what if a really long process goes, and 2+ processes age at once?
+	The obvious bit is that prcesses age up one queue when aged enough regardless of anything else (except when there's less than 3 queues).
+	What's more important is the order of the processes when multiple pracesses age... 
+		Might be a good idea to check the whole queue for aged processes, then order them based on arrival time/remaining age (older processes first)
+
+Note: bursts in the example file don't seem to exceed 100.
+
+We pretty much solved aging. Pseudocode for an aging function that was made earlier has been updated (line 139).
+
+Probably going to have MFQS done before getting into RTS, but I could still work on RTS pseudocode.
+
+~Partner is wondering about if we should output a gantt chart. Could be worthwhile, at least for figuring things out.
+
+--MEETING ENDED--
+
+
+
+11/10: (was busy with an Algorithms assignment on the weekend and my ethernet cable plug's tab broke off yesterday)
+
+I'm going to take a crack at implementing RTS based off the pseudocode I made a week ago (line 271).
+
+I can't seem to read my own pseudocode that well right now... so, here's a break down of how RTS works:
+
+Before main loop:
+1. Loads lowest deadline process currently available (with lowest PID as a tiebreaker).
+[loads other processes with arrival time == 0]
+
+During main loop:
+2. If the current process has a deadline greater than it's burst + the clock, it gets kicked out (and another is loaded).
+3. Clock tick occurs.
+4. Load in processes:
+	a. If the current process isn't done yet,
+		i. and another process comes in with an earlier deadline, the new process takes over.
+		ii. If no new processes get loaded with a deadline earlier than the current process, just store them, letting the current process continue.
+	b. If the current process is done, terminate it and replace it with the next earliest deadline process.
+
+Used the pseudocode and the breakdown to put skeleton code into RTS.cpp
+
+
+
+11/13: Both of us are working from home today. We're communicating through email.
+
+~Partner made a constructor for a queue data structure made for MFQS so that it doesn't need a time quantum.
+	I can probably use this to make a seperate queue for my idea to implement RTS. Howeverm it doesn't look like a priority queue...
+
+I found that C++ has a priority queue data structure built in. Perhaps I can put processes in there and sort by deadline.
+	Info from http://en.cppreference.com/w/cpp/container/priority_queue
+
+So right now, my objective is to see if a C++ priority queue can sort processes by deadline.
+	I may need my own test file and need to include <queue> for the queue, and <functional> and <vector> as well.
+
+I replicated the results I saw from example code for a C++ priority queue, now I need to try it with processes.
+	But I'm wondering how processes get loaded into a class...
+		Apparently, the processes are there by default since it's sent to the Scheduler interface, which becomes a certain scheduler.
+
+Although I can confirm that the data is there, I don't quite know how to access the data in processes...
+
+
+11/17: (was working on another assignment the last 2 or 3 days)
+
+--MEETING START--
+
+Accessing a process properly was an easy fix (needed "->" rather than ".").
+
+Trying to use C++ built in priority queue got too complicated (got a long error message complaining that Processor::allocator didn't exist).
+	Going to use the sort funtion to sort processes by deadline like it was used in main to sort by arrival time in the main.
+
+It took a bit of looking up how to use a vector properly, but I can take a vector, add values, sort them, and pop off values as I need them.
+
+Since the Process/Scheduler classes have no function to remove processes, loading all the data in a second vector is required.
+	I can use a process' PID to determine which process' state to change in the scheduler's own process list, but I still have bad feelings...
+
+If I use arrival time properly, I shouldn't need to load everything into a whole other vector. 
+	I'm stopping for now, in case too many things go wrong with going this "use more vectors than I might need to" route.
+
+--MEETING ENDED--
+
+11/18:
+
+--MEETING START--
+
+Switched RTS to change states in the main processes list rather than load them all into a whole new vector. So far so good.
+
+"Hint: use a red-black tree to represent all active priority run queues."? (part of WHS)
+
+Partner talked about slack and loading shortest burst processes first. I'm not even sure RTS should be able to do that...
+	Assuming it shouldn't and not programming slack for now.
+
+Switched from a vector to a deque (double ended queue) so I have pop/push_front. I'll need to change a few things.
+
+I think I have in RTS what I think belongs in RTS, but I'm getting looping problems (out of bounds of infinite loop)...
+
+I'll need to look at all RTS has carefully.
+
+--MEETING ENDED--
+
+
+11/19:
+
+--MEETING START--
+
+Made sure both me and my partner had everything up to date in terms of git (was having git merge issues last time).
+
+--MEETING ENDED-- (partner left for class, and I'll be off campus soon to nap to recover focus/shake off tiredness)
+
+I noticed using "processes.at(p->getArrivalTime() - 1)" is a bad idea since there can easily be multiple processes with equal arrivals.
+
+
+11/20: Communicating with partner through Skype from home today.
+
+I'm now terminating the active process rather than the process in the scheduler's process list. This should be more appropriate.
+	Unfortunately, I still have some infinite looping.
+
+I figured out that the real issue of my looping situation is that p isn't properly referencing the next process in the queue. I wonder why...
+	Maybe it's because I should use "pop" with the deque rather than erasing things after loading them into p, because the deque isn't changing either.
+
+Here's the REAL issue: I somehow load in a single process multiple times. I need to find out where I'm doing this and stop this from happening.
+
+
+11/21:
+
+Although RTS seems to be working, I still have to do the following ("~" = it may be done, "-" = I should look at it, an added ">" = look at this closely):
+	RTS:
+	~make a hard real time mode (stop when a process gets kicked out). - Made slightly more proper, but requires testing.
+	~report processes that can't be scheduled (but not for hard real time) - at least partially already done in main
+	->"The time spent in the CPU of the failed process should be included in the calculation of the average turnaround time and 
+	  waiting time for the scheduler."
+	~[Optional?] Look more into this "slack" thing that my partner was talking about once. - He says I'm already doing this and "slack" is a different way to say it
+	All:
+	-Gantt chart info (such as start/end time in CPU) - will involve PID
+	~wait/turnaround times (worth making sure I have correct values) - using a calculator to confirm accuracy should suffice
+	~total processes scheduled
+	~#ifdef DEBUG around test outputs
+
+About the third point for the RTS specific item in the list above:
+	I'm pretty sure wait time should go up as it is: incrementing by 1 when a process active at one time may be kicked out later,
+	but what about turnaround time and number of processes scheduled? Turnaround time may be especially interesting...
+		I think I'm supposed to include processes that get kicked out after being loaded into the scheduler as part of the number of processes (maybe not).
+			I'm probably already doing this.
+
+11/22: continuing tasks in to do list made yesterday.
+
+About hard real time:
+	What should trigger hard real time to stop? Negative numbers? Arrival higher than deadline? Only processes that arrive before deadline that don't finish?
+	Probably not the first one, but I'm wondering about the second one. Still, the last one is most likely.
+	Although, I hope processes that never get into rtsQueue aren't counted as processes that were scheduled, because they aren't really in RTS before then.
+		Apparently, they are... This needs to be fixed.
+
+Looks like I didn't test something I should have: what happens when processes get kicked out during the while loop.
+	It may somehow be deleting data I shouldn't be...
+	*No, wait, I'm starting with a null process! I just need to handle p being null better, and I may be 100% good to go.
+		Unfortunately, this is proving to be difficult...
+		Advancing the clock to when the earliest process arrives helps (should do this every place applicable), but now I've got a seg fault problem going on.
+
+Shifting gears to making sure average wait/turnaround time is calculated right first.
+	I ran the numbers on my calculator, and it looks like they're fine for a dataset that involves no process getting kicked out while RTS is running.
+
+So, the only REAL things to do are:
+	-Handle moments when p is null properly. (in progress. seems good so far though)
+	-Find out what's causing my seg faults. Probably involves when processes loaded in are cancelled.
+	-Get some Gantt chart things going.
+	-Get wait/turnaround times to account for when RTS kicks our processes (thought started at line 485).
+
+
+11/23 (last day):
+
+--MEETING START--
+
+There's problems other than seg faults. I have a test file where a process arrives shortly after the first process, but it doesn't switch places with the active one with a later deadline...
+	I just made pushing the current process back into the queue, sorting after loading in all currently arrived processes, and pulling the right process out work properly.
+		So a deadline 8 process that arrives at 2 replaces a deadline 10 process that arrives at 0.
+
+Testing larger datasets now.
+	Runing 150 processes file gets a different seg fault...
+
+Partner mentioned what should be part of debugging outputs. Updated those.
+
+Partner also mentioned wait/turnaround time calculations. He added a method to the Scheduler interface to help with handling that, but i'll have to do a successful pull first.
+	Skipping trying to pull until partner gets back.
+
+Back to the seg fault with 150 processes.
+	I'm noticing my current code properly ended a process, but then soon after canceling it.
+	Looks like the only issue was trying to reference p when it was null. Now I can run 100k processes within 3 minutes on RTS! (although, calculations are still off)
+
+With RTS apparently working, there's only a few things left to do:
+	->write the papaer
+	~make sure calculations are correct (getting bad values)
